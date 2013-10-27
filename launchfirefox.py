@@ -8,6 +8,8 @@ from bz2 import BZ2Decompressor
 from bz2 import (BZ2Decompressor as Decompressor,
                    BZ2Compressor as Compressor)
 
+from .filekit import TemporaryFileContext, LockFile, AtomicReplacement
+
 sane_ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
 sane_ssl_context.verify_mode = ssl.CERT_REQUIRED
 sane_ssl_context.set_default_verify_paths()
@@ -41,6 +43,8 @@ CDN_HOST = 'download-installer.cdn.mozilla.net'
 CDN_DIR = '/pub/mozilla.org/firefox/releases/{0}/'
 CDN_FIREFOX = 'linux-i686/en-US/firefox-{0}.tar.bz2'
 
+TEMP_CONTEXT = TemporaryFileContext(dir=MAIN_DIRECTORY,
+                                    suffix='.~{}~'.format(os.getpid()))
 
 def get_sha512_hash_for_release(version):
    conn = http.client.HTTPConnection(CDN_HOST)
@@ -125,7 +129,10 @@ def main():
     try:
         firefox_launcher_pid = os.fork()
         if not firefox_launcher_pid:
-            launch_firefox()
+            try:
+                launch_firefox()
+            except IOError:
+                pass
             os._exit(0)
     except KeyboardInterrupt:
         os._exit(1)
@@ -134,46 +141,31 @@ def main():
 
     print('[+] Checking for Updates')
     sys.stdout.flush()
-    version_info = check_for_updates()
+
+    with LockFile(VERSION_FILE, exclusive=True) as lockfile:
+        version_info = check_for_updates(lockfile)
+
+        if version_info:
+            print('[+] Updating Firefox')
+            os.kill(firefox_launcher_pid, signal.SIGINT)
+            with AtomicReplacement(FIREFOX_ARCHIVE, TEMP_CONTEXT) as out:
+                update_firefox(version_info, out)
+                out.ready = True
+
+            lockfile.setvalue(format_version(version_info))
+
     if version_info:
-        print('[+] Updating Firefox')
-        os.kill(firefox_launcher_pid, signal.SIGINT)
-        update_firefox(version_info)
         launch_firefox()
+
     os.wait()
-
-def read_version():
-    with open(VERSION_FILE, 'rb') as version_file:
-        fcntl.lockf(version_file.fileno(), fcntl.LOCK_SH)
-        version = version_file.read()
-    return version
-
-def cmpxchg_archive(old_version, new_version, new_archive=None):
-    with open(VERSION_FILE, 'r+b') as version_file:
-        fcntl.lockf(version_file.fileno(), fcntl.LOCK_EX)
-        version = version_file.read()
-        if version != old_version:
-            return False
-        if new_archive:
-            new_archive.delete = False
-            try:
-                os.rename(new_archive.name, FIREFOX_ARCHIVE)
-            except OSError as e:
-                os.unlink(new_archive.name)
-                raise
-        version_file.seek(0)
-        version_file.truncate()
-        version_file.write(new_version)
-    return True
 
 VERSION_RE = re.compile(b'^([0-9]+(?:[.][0-9]+)*) ' + VER_RE + b'$')
 
 def is_older_then(V, W):
-    return [int(v) for v in V.split(b'.')] < [int(w) for w in W.split('.')]
+    return [int(v) for v in V.split('.')] < [int(w) for w in W.split('.')]
 
-def check_for_updates():
-    old_version_text = read_version()
-    old_version_parts = VERSION_RE.match(old_version_text)
+def check_for_updates(vfile):
+    old_version_parts = VERSION_RE.match(vfile.read())
 
     if old_version_parts:
         old_version, old_time = old_version_parts.groups()
@@ -183,7 +175,8 @@ def check_for_updates():
                     int(UPDATE_INTERVAL - time_delta)), file=sys.stderr)
             return
     else:
-        old_version = '0'
+        old_version = b'0'
+    old_version = old_version.decode('ascii')
 
     try:
         print('[-] Checking Latest Version...', end=' ', file=sys.stderr)
@@ -205,20 +198,18 @@ def check_for_updates():
         new_version, = loc.groups()
         if is_older_then(old_version, new_version):
             print(new_version)
-            return old_version_text, new_version
-        else:
-            cmpxchg_archive(old_version_text, format_version(new_version))
+            return vfile.read(), new_version
         print()
     except IOError as e:
         print(e)
         print('WARNING: FAILED TO CHECK FOR UPDATES!', file=sys.stderr)
 
 def format_version(vers):
-    return '{} {}\n'.format(vers, time.time()).encode('ascii')
+    return '{0[1]} {1}\n'.format(vers, time.time()).encode('ascii')
 
 BLOCK_SIZE = 1048576
 
-def update_firefox(version_info):
+def update_firefox(version_info, tfile):
     old,version = version_info
     good_hash = get_sha512_hash_for_release(version)
     bzipped = io.BytesIO()
@@ -253,10 +244,6 @@ def update_firefox(version_info):
     print('[-] Converting & Storing...', end=' ')
     sys.stdout.flush()
 
-    tfile = tempfile.NamedTemporaryFile(prefix='firefox-{}'.format(
-                version_info), suffix='.-{}-'.format(os.getpid()),
-                dir=MAIN_DIRECTORY)
-
     decom = BZ2Decompressor()
     comp = Compressor()
 
@@ -269,12 +256,9 @@ def update_firefox(version_info):
         block = bzipped.read(BLOCK_SIZE)
 
     tfile.write(comp.flush())
-    tfile.flush()
     print(' Done')
 
     print('[-] Finishing...', end=' ')
-    cmpxchg_archive(old, format_version(version), tfile)
-    print()
 
 def save_profile(child_pid):
     pass
@@ -285,6 +269,7 @@ def load_profile():
 def unpack_firefox():
     dec = Decompressor()
     arc = open(FIREFOX_ARCHIVE, 'rb')
+        
     decompressed = tempfile.NamedTemporaryFile()
 
     buf = arc.read(BLOCK_SIZE)
@@ -314,6 +299,7 @@ def launch_firefox():
 
     oldsi = sys.getswitchinterval()
     sys.setswitchinterval((1<<30))
+    p = -1
     try:
         child_pid = os.fork()
         sys.setswitchinterval(oldsi)
@@ -328,9 +314,8 @@ def launch_firefox():
                 if p == child_pid:
                     save_profile(child_pid)
                     return
-
     except KeyboardInterrupt:
-        if child_pid:
+        if child_pid and p != child_pid:
             os.kill(child_pid, signal.SIGINT)
         os._exit(0)
 
