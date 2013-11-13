@@ -33,15 +33,18 @@ GNUPG_HOME = os.path.join(MAIN_DIRECTORY, 'gnupg')
 UPDATE_INTERVAL = 86400
 
 VER_RE = b'([0-9]+(?:[.][0-9]+)*)'
+VER_RE_STR = VER_RE.decode('ascii')
 DOWNLOAD_HOST = 'download.mozilla.org'
-DOWNLOAD_PATH = '/?product=firefox-latest&os=linux&lang=en_US'
-DOWNLOAD_RE = re.compile('^[?]product=firefox-' + VER_RE.decode('ascii') +
-                         '&os=linux&lang=en_US$')
-
+DOWNLOAD_PATH = '/?product=firefox-latest&os=linux&lang=en-US'
+DOWNLOAD_RE = re.compile('^[?]product=firefox-{0}&os=linux&lang=en-US$'
+                         .format(VER_RE_STR))
 
 CDN_HOST = 'download-installer.cdn.mozilla.net'
 CDN_DIR = '/pub/mozilla.org/firefox/releases/{0}/'
 CDN_FIREFOX = 'linux-i686/en-US/firefox-{0}.tar.bz2'
+
+DOWNLOAD_RE_CDN = re.compile(('^http://' + CDN_HOST + CDN_DIR + CDN_FIREFOX +
+                              '$').format(VER_RE_STR))
 
 TEMP_CONTEXT = TemporaryFileContext(dir=MAIN_DIRECTORY,
                                     suffix='.~{}~'.format(os.getpid()))
@@ -192,10 +195,12 @@ def check_for_updates(vfile):
 
         loc = DOWNLOAD_RE.match(resp.getheader('Location'))
         if loc is None:
+            loc = DOWNLOAD_RE_CDN.match(resp.getheader('Location'))
+        if loc is None:
             print('Bad Format')
             raise IOError
 
-        new_version, = loc.groups()
+        new_version, *_ = loc.groups()
         if is_older_then(old_version, new_version):
             print(new_version)
             return vfile.read(), new_version
