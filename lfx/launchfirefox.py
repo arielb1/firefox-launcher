@@ -146,15 +146,16 @@ def main():
     sys.stdout.flush()
 
     with LockFile(VERSION_FILE, exclusive=True) as lockfile:
-        version_info = check_for_updates(lockfile)
+        version_info, update_needed = check_for_updates(lockfile)
 
-        if version_info:
+        if update_needed:
             print('[+] Updating Firefox')
             os.kill(firefox_launcher_pid, signal.SIGINT)
             with AtomicReplacement(FIREFOX_ARCHIVE, TEMP_CONTEXT) as out:
                 update_firefox(version_info, out)
                 out.ready = True
 
+        if version_info is not None:
             lockfile.setvalue(format_version(version_info))
 
     if version_info:
@@ -176,13 +177,14 @@ def check_for_updates(vfile):
         if time_delta < UPDATE_INTERVAL:
             print('[-] Next check in {} seconds'.format(
                     int(UPDATE_INTERVAL - time_delta)), file=sys.stderr)
-            return
+            return None, False
     else:
         old_version = b'0'
     old_version = old_version.decode('ascii')
 
     try:
         print('[-] Checking Latest Version...', end=' ', file=sys.stderr)
+        checked_at = time.time()
         sys.stderr.flush()
         conn = http.client.HTTPSConnection(DOWNLOAD_HOST,
                                            context=sane_ssl_context)
@@ -203,14 +205,16 @@ def check_for_updates(vfile):
         new_version, *_ = loc.groups()
         if is_older_then(old_version, new_version):
             print(new_version)
-            return vfile.read(), new_version
+            return (new_version, checked_at), True
         print()
     except IOError as e:
         print(e)
         print('WARNING: FAILED TO CHECK FOR UPDATES!', file=sys.stderr)
 
+    return (old_version, checked_at), False
+
 def format_version(vers):
-    return '{0[1]} {1}\n'.format(vers, time.time()).encode('ascii')
+    return '{0[0]} {0[1]}\n'.format(vers).encode('ascii')
 
 BLOCK_SIZE = 1048576
 
