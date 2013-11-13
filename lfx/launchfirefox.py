@@ -292,47 +292,47 @@ def unpack_firefox():
 def launch_firefox():
     print('[-] Unpacking the Browser... ', end=' ')
     sys.stdout.flush()
-    direct = tempfile.TemporaryDirectory(prefix='firefox-launcher')
-    os.chdir(direct.name)
+    with tempfile.TemporaryDirectory(prefix='firefox-launcher') as direct:
+        os.chdir(direct)
 
-    unpack_firefox()
-    print('Done')
+        unpack_firefox()
+        print('Done')
 
-    print('[-] Loading your Profile... ', end=' ')
-    load_profile()
-    print('Done')
+        print('[-] Loading your Profile... ', end=' ')
+        load_profile()
+        print('Done')
 
-    print('[-] Launching')
-    sys.stdout.flush()
-    child_pid = 0
+        print('[-] Launching')
+        sys.stdout.flush()
+        child_pid = 0
 
-    oldsi = sys.getswitchinterval()
-    sys.setswitchinterval((1<<30))
-    p = -1
-    try:
-        child_pid = os.fork()
-        sys.setswitchinterval(oldsi)
+        oldsi = sys.getswitchinterval()
+        sys.setswitchinterval((1<<30))
+        p = -1
+        try:
+            child_pid = os.fork()
+            sys.setswitchinterval(oldsi)
 
-        if child_pid != 0:
-            while 1:
-                if os.fork() == 0:
-                    save_profile(child_pid)
-                    time.sleep(120)
-                    os._exit(0)
-                p,_ = os.wait()
-                if p == child_pid:
-                    save_profile(child_pid)
-                    return
-    except KeyboardInterrupt:
-        if child_pid and p != child_pid:
-            os.kill(child_pid, signal.SIGINT)
-        os._exit(0)
+            if child_pid != 0:
+                while 1:
+                    if os.fork() == 0:
+                        save_profile(child_pid)
+                        time.sleep(120)
+                        os._exit(0)
+                    p,_ = os.wait()
+                    if p == child_pid:
+                        save_profile(child_pid)
+                        return
+        except KeyboardInterrupt:
+            if child_pid and p != child_pid:
+                os.kill(child_pid, signal.SIGINT)
+                os._exit(0)
 
-    env = os.environ
-    env['HOME'] = os.getcwd()
-    os.chdir('firefox')
-    os.execve('./firefox', ['./firefox'], env)
-    os._exit(1)
+        env = os.environ
+        env['HOME'] = os.getcwd()
+        os.chdir('firefox')
+        os.execve('./firefox', ['./firefox'], env)
+        os._exit(1)
 
 if __name__ == '__main__':
     main()
