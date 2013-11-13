@@ -135,7 +135,7 @@ def main():
             try:
                 launch_firefox()
             except IOError:
-                pass
+                os._exit(1)
             os._exit(0)
     except KeyboardInterrupt:
         os._exit(1)
@@ -289,6 +289,25 @@ def unpack_firefox():
 
     shutil.unpack_archive(decompressed.name, format='tar')
 
+have_sigint = False
+old_sigint_handler = None
+
+def di():
+    global old_sigint_handler
+    def _sigint_handler(signo, st):
+        global have_sigint
+        have_sigint = True
+    old_sigint_handler = signal.signal(signal.SIGINT, _sigint_handler)
+
+def ei():
+    global old_sigint_handler, have_sigint
+    signal.signal(signal.SIGINT, old_sigint_handler)
+    old_sigint_handler = None
+    if have_sigint:
+        have_sigint = False
+        raise KeyboardInterrupt
+    
+
 def launch_firefox():
     print('[-] Unpacking the Browser... ', end=' ')
     sys.stdout.flush()
@@ -304,14 +323,14 @@ def launch_firefox():
 
         print('[-] Launching')
         sys.stdout.flush()
-        child_pid = 0
+        pid = os.getpid()
+        child_pid = -1
 
-        oldsi = sys.getswitchinterval()
-        sys.setswitchinterval((1<<30))
+        di()
         p = -1
         try:
             child_pid = os.fork()
-            sys.setswitchinterval(oldsi)
+            ei()
 
             if child_pid != 0:
                 while 1:
@@ -319,14 +338,25 @@ def launch_firefox():
                         save_profile(child_pid)
                         time.sleep(120)
                         os._exit(0)
+                    di()
                     p,_ = os.wait()
+                    ei()
                     if p == child_pid:
+                        try:
+                            while 1:
+                                os.wait()
+                        except OSError:
+                            pass
                         save_profile(child_pid)
                         return
-        except KeyboardInterrupt:
-            if child_pid and p != child_pid:
+        except BaseException:
+            if pid != os.getpid(): # All secondary processes
+                os._exit(1)
+
+            if p != child_pid: # If child is still alive, kill it
                 os.kill(child_pid, signal.SIGINT)
-                os._exit(0)
+
+            raise
 
         env = os.environ
         env['HOME'] = os.getcwd()
