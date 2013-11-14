@@ -9,6 +9,7 @@ from bz2 import (BZ2Decompressor as Decompressor,
                    BZ2Compressor as Compressor)
 
 from .filekit import TemporaryFileContext, LockFile, AtomicReplacement
+from .gpg import gpg_verify
 
 sane_ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
 sane_ssl_context.verify_mode = ssl.CERT_REQUIRED
@@ -72,7 +73,7 @@ def get_sha512_hash_for_release(version):
        sys.exit(1)
    signature = response.read()
 
-   if not gpg_verify(signature, sums):
+   if not gpg_verify(signature, sums, GNUPG_HOME):
        print('Signature verification failed.')
        sys.exit(1)
 
@@ -87,46 +88,6 @@ def get_sha512_hash_for_release(version):
 
    print('hash for {} not found - exiting'.format(download_fn))
    sys.exit(1)
-
-def gpg_verify(signature, text):
-    rT,wT = os.pipe()
-    rS,wS = os.pipe()
-
-    swpid = os.fork()
-    if not swpid:
-        os.close(rT)
-        os.close(wT)
-        os.close(rS)
-        os.write(wS, signature)
-        os._exit(1)
-    os.close(wS)
-
-    pid = os.fork()
-    if not pid:
-        os.close(wT)
-
-        if rT == 3:
-            os.dup2(rT,5)
-            os.dup2(3,4)
-            os.dup2(5,3)
-        else:
-            os.dup2(rS,3)
-            os.dup2(rT,4)
-        env = os.environ.copy()
-        env['GNUPGHOME'] = GNUPG_HOME
-
-        os.execvpe('gpg', ['gpg', '--verify', '/dev/fd/3', '/dev/fd/4'],
-                   env)
-        os._exit(1)
-
-    os.close(rS)
-    os.close(rT)
-    os.write(wT, text)
-    os.close(wT)
-    
-    _,status = os.waitpid(pid, 0)
-    _ = os.waitpid(swpid, 0)
-    return os.WIFEXITED(status) and not os.WEXITSTATUS(status)
 
 def main():
     try:
