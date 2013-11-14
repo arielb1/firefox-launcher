@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import os, sys, signal, os.path, tempfile, fcntl, time, re
-import socket, http.client, ssl, io, hashlib, shutil
+import http.client, io, hashlib, shutil
 from bz2 import BZ2Decompressor
 
 # FIXME
@@ -10,10 +10,7 @@ from bz2 import (BZ2Decompressor as Decompressor,
 
 from .filekit import TemporaryFileContext, LockFile, AtomicReplacement
 from .gpg import gpg_verify
-
-sane_ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
-sane_ssl_context.verify_mode = ssl.CERT_REQUIRED
-sane_ssl_context.set_default_verify_paths()
+from .util import SANE_SSL_CONTEXT, ei, di
 
 MAX_VERSION_LENGTH = 65536
 MAIN_DIRECTORY = os.path.expanduser('~/firefox-launcher')
@@ -148,7 +145,7 @@ def check_for_updates(vfile):
         checked_at = time.time()
         sys.stderr.flush()
         conn = http.client.HTTPSConnection(DOWNLOAD_HOST,
-                                           context=sane_ssl_context)
+                                           context=SANE_SSL_CONTEXT)
 
         conn.request('get', DOWNLOAD_PATH)
         resp = conn.getresponse()
@@ -249,25 +246,6 @@ def unpack_firefox():
     decompressed.flush()
 
     shutil.unpack_archive(decompressed.name, format='tar')
-
-have_sigint = False
-old_sigint_handler = None
-
-def di():
-    global old_sigint_handler
-    def _sigint_handler(signo, st):
-        global have_sigint
-        have_sigint = True
-    old_sigint_handler = signal.signal(signal.SIGINT, _sigint_handler)
-
-def ei():
-    global old_sigint_handler, have_sigint
-    signal.signal(signal.SIGINT, old_sigint_handler)
-    old_sigint_handler = None
-    if have_sigint:
-        have_sigint = False
-        raise KeyboardInterrupt
-    
 
 def launch_firefox():
     print('[-] Unpacking the Browser... ', end=' ')
