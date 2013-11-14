@@ -158,7 +158,7 @@ def main():
         if version_info is not None:
             lockfile.setvalue(format_version(version_info))
 
-    if version_info:
+    if update_needed:
         launch_firefox()
 
     os.wait()
