@@ -8,9 +8,12 @@ from bz2 import BZ2Decompressor
 from bz2 import (BZ2Decompressor as Decompressor,
                    BZ2Compressor as Compressor)
 
+
+from . import mozilla
 from .filekit import TemporaryFileContext, LockFile, AtomicReplacement
 from .gpg import gpg_verify
-from .util import SANE_SSL_CONTEXT, ei, di
+from .util import ei, di
+from .mozilla import VERSION_RE, FirefoxVersion
 
 MAX_VERSION_LENGTH = 65536
 MAIN_DIRECTORY = os.path.expanduser('~/firefox-launcher')
@@ -30,61 +33,8 @@ PROFILE_FILE = os.path.join(MAIN_DIRECTORY, 'profile.tar.xz')
 GNUPG_HOME = os.path.join(MAIN_DIRECTORY, 'gnupg')
 UPDATE_INTERVAL = 86400
 
-VER_RE = b'([0-9]+(?:[.][0-9]+)*)'
-VER_RE_STR = VER_RE.decode('ascii')
-DOWNLOAD_HOST = 'download.mozilla.org'
-DOWNLOAD_PATH = '/?product=firefox-latest&os=linux&lang=en-US'
-DOWNLOAD_RE = re.compile('^[?]product=firefox-{0}&os=linux&lang=en-US$'
-                         .format(VER_RE_STR))
-
-CDN_HOST = 'download-installer.cdn.mozilla.net'
-CDN_DIR = '/pub/mozilla.org/firefox/releases/{0}/'
-CDN_FIREFOX = 'linux-i686/en-US/firefox-{0}.tar.bz2'
-
-DOWNLOAD_RE_CDN = re.compile(('^http://' + CDN_HOST + CDN_DIR + CDN_FIREFOX +
-                              '$').format(VER_RE_STR))
-
 TEMP_CONTEXT = TemporaryFileContext(dir=MAIN_DIRECTORY,
                                     suffix='.~{}~'.format(os.getpid()))
-
-def get_sha512_hash_for_release(version):
-   conn = http.client.HTTPConnection(CDN_HOST)
-   
-   print('[-] Downloading SHA512SUMS...',end=' ')
-   sys.stdout.flush()
-   conn.request('get', CDN_DIR.format(version) + 'SHA512SUMS')
-   response = conn.getresponse()
-   if response.status != 200:
-       print(response.status, response.reason)
-       print('COULD NOT UPDATE FIREFOX')
-       sys.exit(1)
-   sums = response.read()
-   print('Done')
-
-   print('[-] Downloading signature and verifying...')
-   sys.stdout.flush()
-   conn.request('get', CDN_DIR.format(version) + 'SHA512SUMS.asc')
-   response = conn.getresponse()
-   if response.status != 200:
-       print('Got', response.status, response.reason)
-       sys.exit(1)
-   signature = response.read()
-
-   if not gpg_verify(signature, sums, GNUPG_HOME):
-       print('Signature verification failed.')
-       sys.exit(1)
-
-   download_fn = CDN_FIREFOX.format(version).encode('ascii')
-   for line in sums.split(b'\n'):
-       parts = line.strip().split(b' ')
-       if len(parts) != 3:
-           continue
-       if parts[2].strip() == download_fn:
-           return parts[0]
-
-
-   print('hash for {} not found - exiting'.format(download_fn))
-   sys.exit(1)
 
 def main():
     try:
@@ -104,30 +54,29 @@ def main():
     sys.stdout.flush()
 
     with LockFile(VERSION_FILE, exclusive=True) as lockfile:
-        version_info, update_needed = check_for_updates(lockfile)
+        (version, time), update_needed = check_for_updates(lockfile)
 
         if update_needed:
             print('[+] Updating Firefox')
             os.kill(firefox_launcher_pid, signal.SIGINT)
             with AtomicReplacement(FIREFOX_ARCHIVE, TEMP_CONTEXT) as out:
-                update_firefox(version_info, out)
+                update_firefox(version, out)
                 out.ready = True
 
-        if version_info is not None:
-            lockfile.setvalue(format_version(version_info))
+        if version is not None:
+            lockfile.setvalue(format_version(version, time))
+
+    p,_ = os.wait()
+    assert p == firefox_launcher_pid
 
     if update_needed:
         launch_firefox()
 
-    os.wait()
-
-VERSION_RE = re.compile(b'^([0-9]+(?:[.][0-9]+)*) ' + VER_RE + b'$')
-
-def is_older_then(V, W):
-    return [int(v) for v in V.split('.')] < [int(w) for w in W.split('.')]
+VERFILE_RE = re.compile(b'^([0-9]+(?:[.][0-9]+)*) ' +
+                        VERSION_RE.encode('ascii') + b'$')
 
 def check_for_updates(vfile):
-    old_version_parts = VERSION_RE.match(vfile.read())
+    old_version_parts = VERFILE_RE.match(vfile.read())
 
     if old_version_parts:
         old_version, old_time = old_version_parts.groups()
@@ -135,33 +84,19 @@ def check_for_updates(vfile):
         if time_delta < UPDATE_INTERVAL:
             print('[-] Next check in {} seconds'.format(
                     int(UPDATE_INTERVAL - time_delta)), file=sys.stderr)
-            return None, False
+            return (None, None), False
     else:
         old_version = b'0'
-    old_version = old_version.decode('ascii')
+    old_version = FirefoxVersion(old_version.decode('ascii'))
 
     try:
         print('[-] Checking Latest Version...', end=' ', file=sys.stderr)
         checked_at = time.time()
         sys.stderr.flush()
-        conn = http.client.HTTPSConnection(DOWNLOAD_HOST,
-                                           context=SANE_SSL_CONTEXT)
 
-        conn.request('get', DOWNLOAD_PATH)
-        resp = conn.getresponse()
-        if resp.status != 302:
-            print(resp.status, resp.reason)
-            raise IOError
+        new_version = mozilla.get_latest_firefox_version()
 
-        loc = DOWNLOAD_RE.match(resp.getheader('Location'))
-        if loc is None:
-            loc = DOWNLOAD_RE_CDN.match(resp.getheader('Location'))
-        if loc is None:
-            print('Bad Format')
-            raise IOError
-
-        new_version, *_ = loc.groups()
-        if is_older_then(old_version, new_version):
+        if old_version < new_version:
             print(new_version)
             return (new_version, checked_at), True
         print()
@@ -171,42 +106,26 @@ def check_for_updates(vfile):
 
     return (old_version, checked_at), False
 
-def format_version(vers):
-    return '{0[0]} {0[1]}\n'.format(vers).encode('ascii')
+def format_version(version, time):
+    return '{0} {1}\n'.format(version, time).encode('ascii')
 
 BLOCK_SIZE = 1048576
 
-def update_firefox(version_info, tfile):
-    version, time = version_info
-    good_hash = get_sha512_hash_for_release(version)
-    bzipped = io.BytesIO()
-    scanner = hashlib.sha512()
+def update_firefox(version, tfile):
+    algo, digest = mozilla.get_firefox_hash(version, GNUPG_HOME)
+    scanner = hashlib.new(algo)
 
-    print('[-] Downloading Firefox...', end=' ')
+    print('[-] Downloading Firefox...')
     sys.stdout.flush()
 
-    conn = http.client.HTTPConnection(CDN_HOST)
-    conn.request('get', (CDN_DIR+CDN_FIREFOX).format(version))
-    response = conn.getresponse()
-    if response.status != 200:
-        print(response.status, response.reason)
-        sys.exit(1)
+    firefox_bz2 = mozilla.get_firefox_bz2(version,
+                                          lambda: (sys.stdout.write('*'),
+                                                   sys.stdout.flush()))
+    scanner.update(firefox_bz2)
 
-    block = response.read(BLOCK_SIZE)
-    while block:
-        sys.stdout.write('*')
-        sys.stdout.flush()
-        
-        scanner.update(block)
-        bzipped.write(block)
-        block = response.read(BLOCK_SIZE)
-    bzipped.seek(0)
-
-    if scanner.hexdigest().encode('ascii') != good_hash:
+    if scanner.hexdigest() != digest:
         print('SHA512 Verification Failure')
         sys.exit(1)
-    else:
-        print(' {}'.format(good_hash.decode('ascii')))
 
     print('[-] Converting & Storing...', end=' ')
     sys.stdout.flush()
@@ -214,13 +133,18 @@ def update_firefox(version_info, tfile):
     decom = BZ2Decompressor()
     comp = Compressor()
 
-    block = bzipped.read(BLOCK_SIZE)
+    pos = 0
+    block = firefox_bz2[pos:pos+BLOCK_SIZE]
     while block:
+        sys.stdout.flush()
         tfile.write(comp.compress(decom.decompress(block)))
 
         sys.stdout.write('*')
         sys.stdout.flush()
-        block = bzipped.read(BLOCK_SIZE)
+
+        pos+=BLOCK_SIZE
+        block = firefox_bz2[pos:pos+BLOCK_SIZE]
+
 
     tfile.write(comp.flush())
     print(' Done')
