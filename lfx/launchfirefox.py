@@ -180,7 +180,7 @@ def format_version(vers):
 BLOCK_SIZE = 1048576
 
 def update_firefox(version_info, tfile):
-    old,version = version_info
+    version, time = version_info
     good_hash = get_sha512_hash_for_release(version)
     bzipped = io.BytesIO()
     scanner = hashlib.sha512()
@@ -295,7 +295,9 @@ def launch_firefox():
 
             if child_pid != 0:
                 while 1:
-                    if os.fork() == 0:
+                    checker = os.fork()
+                    if checker == 0:
+                        di()
                         save_profile(child_pid)
                         time.sleep(120)
                         os._exit(0)
@@ -304,6 +306,7 @@ def launch_firefox():
                     ei()
                     if p == child_pid:
                         try:
+                            os.kill(checker, signal.SIGINT)
                             while 1:
                                 os.wait()
                         except OSError:
