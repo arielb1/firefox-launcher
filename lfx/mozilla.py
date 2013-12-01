@@ -1,4 +1,4 @@
-import re, io, http.client
+import re, io, http.client, sys
 
 from .util import SANE_SSL_CONTEXT
 from .gpg import gpg_verify
@@ -64,8 +64,9 @@ def _get_from_cdn(conn, version, filename, callback=lambda: None,
                   block_size=BLOCK_SIZE):
     result = io.BytesIO()
 
-    print('GET %s ' % (CDN_DIR.format(version) + filename),end='')
-    conn.request('get', CDN_DIR.format(version) + filename)
+    url = CDN_DIR.format(version) + filename
+    print('GET %s ' % url,end='', file=sys.stderr)
+    conn.request('get', url)
     response = conn.getresponse()
     if response.status != 200:
         raise ValueError(response.status, response.reason)
@@ -76,7 +77,7 @@ def _get_from_cdn(conn, version, filename, callback=lambda: None,
         result.write(block)
         block = response.read(block_size)
 
-    print()
+    print(file=sys.stderr)
     result.seek(0)
     return result.getvalue()
 
