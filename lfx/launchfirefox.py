@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 
-import os, sys, signal, os.path, tempfile, fcntl, time, re
-import http.client, io, hashlib, shutil
+import os, sys, signal, os.path, tempfile
+import time, shutil
 
 # FIXME
 from bz2 import (BZ2Decompressor as Decompressor,
                    BZ2Compressor as Compressor)
 
 
-from . import mozilla, updater
-from .filekit import TemporaryFileContext, LockFile, AtomicReplacement
-from .gpg import gpg_verify
+from . import updater
+from .filekit import TemporaryFileContext
 from .util import ei, di
-from .mozilla import VERSION_RE, FirefoxVersion
 
 BLOCK_SIZE = 1048576
 MAX_VERSION_LENGTH = 65536
