@@ -15,6 +15,7 @@ from .gpg import gpg_verify
 from .util import ei, di
 from .mozilla import VERSION_RE, FirefoxVersion
 
+BLOCK_SIZE = 1048576
 MAX_VERSION_LENGTH = 65536
 MAIN_DIRECTORY = os.path.expanduser('~/firefox-launcher')
 
@@ -37,16 +38,16 @@ TEMP_CONTEXT = TemporaryFileContext(dir=MAIN_DIRECTORY,
                                     suffix='.~{}~'.format(os.getpid()))
 
 def main():
-    try:
-        firefox_launcher_pid = os.fork()
-        if not firefox_launcher_pid:
-            try:
-                launch_firefox()
-            except IOError:
-                os._exit(1)
-            os._exit(0)
-    except KeyboardInterrupt:
-        os._exit(1)
+    di()
+    firefox_launcher_pid = os.fork()
+    if not firefox_launcher_pid:
+        sys.stdout.flush()
+        try:
+            ei()
+            launch_firefox()
+        except (IOError, KeyboardInterrupt):
+            os._exit(1)
+        os._exit(0)
 
     sys.stdout.flush()
 
