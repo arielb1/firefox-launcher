@@ -2,14 +2,13 @@
 
 import os, sys, signal, os.path, tempfile, fcntl, time, re
 import http.client, io, hashlib, shutil
-from bz2 import BZ2Decompressor
 
 # FIXME
 from bz2 import (BZ2Decompressor as Decompressor,
                    BZ2Compressor as Compressor)
 
 
-from . import mozilla
+from . import mozilla, updater
 from .filekit import TemporaryFileContext, LockFile, AtomicReplacement
 from .gpg import gpg_verify
 from .util import ei, di
@@ -49,108 +48,38 @@ def main():
             os._exit(1)
         os._exit(0)
 
-    sys.stdout.flush()
+    try:
+        ei()
+        n = updater.try_update_firefox(TEMP_CONTEXT, VERSION_FILE,
+                                       FIREFOX_ARCHIVE, UPDATE_INTERVAL,
+                                       GNUPG_HOME,
+                                       lambda: os.kill(firefox_launcher_pid,
+                                                       signal.SIGINT))
 
-    print('[+] Checking for Updates')
-    sys.stdout.flush()
+        if n > 1:
+            print('[-] Next Check in', n, 'Seconds', file=sys.stderr)
 
-    with LockFile(VERSION_FILE, exclusive=True) as lockfile:
-        (version, time), update_needed = check_for_updates(lockfile)
+        di()
+    except BaseException:
+        print('[-] Failed to check for updates! Shutting down.',
+              file=sys.stderr)
+        os.kill(firefox_launcher_pid, signal.SIGINT)
+        raise
 
-        if update_needed:
-            print('[+] Updating Firefox')
+    while 1:
+        try:
+            p,_ = os.wait()
+        except OSError as e:
             os.kill(firefox_launcher_pid, signal.SIGINT)
-            with AtomicReplacement(FIREFOX_ARCHIVE, TEMP_CONTEXT) as out:
-                update_firefox(version, out)
-                out.ready = True
+        else:
+            break
 
-        if version is not None:
-            lockfile.setvalue(format_version(version, time))
-
-    p,_ = os.wait()
+    ei()
     assert p == firefox_launcher_pid
 
-    if update_needed:
+    if not n:
         launch_firefox()
 
-VERFILE_RE = re.compile(b'^([0-9]+(?:[.][0-9]+)*) ' +
-                        VERSION_RE.encode('ascii') + b'$')
-
-def check_for_updates(vfile):
-    old_version_parts = VERFILE_RE.match(vfile.read())
-
-    if old_version_parts:
-        old_version, old_time = old_version_parts.groups()
-        time_delta = time.time() - float(old_time)
-        if time_delta < UPDATE_INTERVAL:
-            print('[-] Next check in {} seconds'.format(
-                    int(UPDATE_INTERVAL - time_delta)), file=sys.stderr)
-            return (None, None), False
-    else:
-        old_version = b'0'
-    old_version = FirefoxVersion(old_version.decode('ascii'))
-
-    try:
-        print('[-] Checking Latest Version...', end=' ', file=sys.stderr)
-        checked_at = time.time()
-        sys.stderr.flush()
-
-        new_version = mozilla.get_latest_firefox_version()
-
-        if old_version < new_version:
-            print(new_version)
-            return (new_version, checked_at), True
-        print()
-    except IOError as e:
-        print(e)
-        print('WARNING: FAILED TO CHECK FOR UPDATES!', file=sys.stderr)
-
-    return (old_version, checked_at), False
-
-def format_version(version, time):
-    return '{0} {1}\n'.format(version, time).encode('ascii')
-
-BLOCK_SIZE = 1048576
-
-def update_firefox(version, tfile):
-    algo, digest = mozilla.get_firefox_hash(version, GNUPG_HOME)
-    scanner = hashlib.new(algo)
-
-    print('[-] Downloading Firefox...')
-    sys.stdout.flush()
-
-    firefox_bz2 = mozilla.get_firefox_bz2(version,
-                                          lambda: (sys.stdout.write('*'),
-                                                   sys.stdout.flush()))
-    scanner.update(firefox_bz2)
-
-    if scanner.hexdigest() != digest:
-        print('SHA512 Verification Failure')
-        sys.exit(1)
-
-    print('[-] Converting & Storing...', end=' ')
-    sys.stdout.flush()
-
-    decom = BZ2Decompressor()
-    comp = Compressor()
-
-    pos = 0
-    block = firefox_bz2[pos:pos+BLOCK_SIZE]
-    while block:
-        sys.stdout.flush()
-        tfile.write(comp.compress(decom.decompress(block)))
-
-        sys.stdout.write('*')
-        sys.stdout.flush()
-
-        pos+=BLOCK_SIZE
-        block = firefox_bz2[pos:pos+BLOCK_SIZE]
-
-
-    tfile.write(comp.flush())
-    print(' Done')
-
-    print('[-] Finishing...', end=' ')
 
 def save_profile(child_pid):
     pass

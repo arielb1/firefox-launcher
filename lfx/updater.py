@@ -24,27 +24,30 @@ def try_update_firefox(temp_ctx, lock_name, arc_name,
 
         print('[-] Checking Firefox Version...', end=' ', file=sys.stderr)
         latest = mozilla.get_latest_firefox_version()
-        print(latest)
+        print(latest, file=sys.stderr)
 
         if vers.register_update(latest):
             before_update()
             with AtomicReplacement(arc_name, temp_ctx) as out:
                 print('[+] Updating Firefox', file=sys.stderr)
-                update_firefox(version, out, gnupg_dir)
+                update_firefox(latest, out, gnupg_dir)
                 out.ready = True
+        else:
+            return True
+    return False
 
 def update_firefox(version, out, gnupg_dir):
     bz2_archive = get_bz2_archive(version, gnupg_dir)
     print('[-] Converting & Storing...', end=' ', file=sys.stderr)
     write_fx_archive(bz2_archive, out)
-    print('Done', file=sys.stderr)
+    print(' Done', file=sys.stderr)
 
 def get_bz2_archive(version, gnupg_dir):
     algo, digest = mozilla.get_firefox_hash(version, gnupg_dir)
     scanner = hashlib.new(algo)
 
     firefox_bz2 = mozilla.get_firefox_bz2(version, display_asterisk)
-    scanner.update_firefox_bz2()
+    scanner.update(firefox_bz2)
     if scanner.hexdigest() != digest:
         raise ValueError('Hash Verification Failure', scanner.hexdigest(),
                          digest)
