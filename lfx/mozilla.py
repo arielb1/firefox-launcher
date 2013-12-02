@@ -9,7 +9,7 @@ __all__ = ['FirefoxVersion', 'get_latest_firefox_version',
 VERSION_RE = '([0-9]+(?:[.][0-9]+)*)'
 
 CDN_HOST = 'download-installer.cdn.mozilla.net'
-CDN_DIR = '/pub/mozilla.org/firefox/releases/{0}/'
+CDN_DIR = '/pub/firefox/releases/{0}/'
 CDN_FIREFOX = 'linux-i686/en-US/firefox-{0}.tar.bz2'
 
 VCHECK_HOST = 'download.mozilla.org'
@@ -20,7 +20,6 @@ VCHECK_REGEXES = [
    re.compile(('^http://{}{}{}$'.format(CDN_HOST, CDN_DIR, CDN_FIREFOX)
                .format(VERSION_RE)))
 ]
-   
 
 class FirefoxVersion(str):
     __slots__ = []
@@ -54,7 +53,7 @@ def _location_to_firefox_version(location):
             break
 
     if match is None:
-        raise ValueError('Bad Format')
+        raise ValueError('Bad Format', location)
 
     return FirefoxVersion(match.groups()[0])
 
