@@ -2,9 +2,8 @@ import sys, hashlib
 
 from bz2 import BZ2Decompressor
 
-# FIXME
-from bz2 import (BZ2Decompressor as Decompressor,
-                   BZ2Compressor as Compressor)
+from .lzma import (LZMADecompressor as Decompressor,
+                   LZMACompressor as Compressor)
 
 from . import mozilla
 from .versionfile import VersionFile

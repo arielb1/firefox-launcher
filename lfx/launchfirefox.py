@@ -3,9 +3,8 @@
 import os, sys, signal, os.path, tempfile
 import time, shutil
 
-# FIXME
-from bz2 import (BZ2Decompressor as Decompressor,
-                   BZ2Compressor as Compressor)
+from .lzma import (LZMADecompressor as Decompressor,
+                   LZMACompressor as Compressor)
 
 
 from . import updater
