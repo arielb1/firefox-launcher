@@ -29,7 +29,8 @@ def gpg_verify(signature, text, keychain):
         env = os.environ.copy()
         env['GNUPGHOME'] = keychain
 
-        os.execvpe('gpg', ['gpg', '--verify', '/dev/fd/3', '/dev/fd/4'],
+        os.execvpe('gpg', ['gpg', '--verify', '/proc/self/fd/3',
+                           '/proc/self/fd/4'],
                    env)
         os._exit(1)
 
