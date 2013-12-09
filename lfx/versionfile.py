@@ -26,8 +26,12 @@ Returns falsey if updates can be skipped, or number of seconds before
 
 Must be called before receive_update.
 '''
-            version_s, time_s = self.lockf.read().decode(
-                  'utf-8').strip().split(' ')
+            version_d = self.lockf.read().decode('utf-8').strip().split(' ')
+            if len(version_d) != 2:
+                  self.check_time = time.time()
+                  return 0
+            version_s, time_s = version_d            
+
             cur_time = time.time()
             if cur_time - float(time_s) < self.check_interval:
                   return self.check_interval - (cur_time - float(time_s))
@@ -40,7 +44,8 @@ Must be called before receive_update.
 Returns True if the new version is an update, False otherwise.
 Also updates the version saved on scope exit.
 '''
-            if newversion > self.version_parser(self.version):
+            if self.version is None or newversion > self.version_parser(
+                      self.version):
                   self.version = newversion
                   return True
             return False
