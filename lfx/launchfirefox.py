@@ -68,7 +68,7 @@ def main():
         try:
             p,_ = os.wait()
         except OSError as e:
-            assert u.errno == errno.EINTR
+            assert e.errno == errno.EINTR
             os.kill(firefox_launcher_pid, signal.SIGINT)
         else:
             break
@@ -85,11 +85,8 @@ def unpack_firefox(archive):
     arc = open(archive, 'rb')
         
     decompressed = tempfile.NamedTemporaryFile()
-
-    buf = arc.read(BLOCK_SIZE)
-    while buf:
-        decompressed.write(dec.decompress(buf))
-        buf = arc.read(BLOCK_SIZE)
+    dec.decompress_pump(lambda: arc.read(BLOCK_SIZE), decompressed.write,
+                        lambda: 0)
     decompressed.flush()
 
     shutil.unpack_archive(decompressed.name, format='tar')

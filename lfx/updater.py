@@ -1,4 +1,4 @@
-import sys, hashlib
+import sys, hashlib, io
 from contextlib import contextmanager
 
 from bz2 import BZ2Decompressor
@@ -62,12 +62,10 @@ def write_fx_archive(firefox_bz2, out):
     decom = BZ2Decompressor()
     comp = Compressor()
 
-    pos = 0
-    while pos < len(firefox_bz2):
-        out.write(comp.compress(decom.decompress(
-                    firefox_bz2[pos:pos+BLOCK_SIZE])))
-
-        display_asterisk()
-        pos += BLOCK_SIZE
-
+    firefox_bz2_f = io.BytesIO(firefox_bz2)
+    def decompress():
+        decompressed = firefox_bz2_f.read(BLOCK_SIZE)
+        # BZip2 crashes when decompressing empty string after EOS
+        return decom.decompress(decompressed) if decompressed else ''
+    comp.compress_pump(decompress, out.write, display_asterisk)
     out.write(comp.flush())

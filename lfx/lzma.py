@@ -72,6 +72,12 @@ class _LZMACodec:
         self.stream.next_out = self.stream.next_in = None
         return result.getvalue()
 
+    def code_pump(self, read, write, callback, action=_lzma.RUN):
+        cur = read()
+        while cur:
+            write(self.code(cur, action))
+            callback()
+            cur = read()
 
     def __del__(self):
         if self.stream is not None:
@@ -83,6 +89,9 @@ class LZMACompressor(_LZMACodec):
     def compress(self, data):
         return self.code(data)
 
+    def compress_pump(self, read, write, callback):
+        self.code_pump(read, write, callback)
+
     def flush(self, mode=_lzma.FINISH):
         return self.code(b'', mode)
 
@@ -93,4 +102,10 @@ class LZMADecompressor(_LZMACodec):
     initfunc = _lzma.raw_decoder
 
     def decompress(self, data):
+        # Fix empty decompress after EOS
+        if not data:
+            return ''
         return self.code(data)
+
+    def decompress_pump(self, read, write, callback):
+        self.code_pump(read, write, callback)
