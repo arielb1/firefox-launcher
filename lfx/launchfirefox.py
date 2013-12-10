@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import os, sys, signal, os.path, tempfile
-import time, shutil
+import time, shutil, errno
 
 from .lzma import (LZMADecompressor as Decompressor,
                    LZMACompressor as Compressor)
@@ -48,14 +48,14 @@ def main():
 
     try:
         ei()
-        n = updater.try_update_firefox(TEMP_CONTEXT, VERSION_FILE,
-                                       FIREFOX_ARCHIVE, UPDATE_INTERVAL,
-                                       GNUPG_HOME,
-                                       lambda: os.kill(firefox_launcher_pid,
-                                                       signal.SIGINT))
+        with updater.try_update_firefox(TEMP_CONTEXT, VERSION_FILE,
+                                        FIREFOX_ARCHIVE, UPDATE_INTERVAL,
+                                        GNUPG_HOME) as (updating, ttn):
+            if updating:
+                os.kill(firefox_launcher_pid, signal.SIGINT)
 
-        if n > 1:
-            print('[-] Next Check in', n, 'Seconds', file=sys.stderr)
+        if ttn > 1:
+            print('[-] Next Check in', ttn, 'Seconds', file=sys.stderr)
 
         di()
     except BaseException:
@@ -68,6 +68,7 @@ def main():
         try:
             p,_ = os.wait()
         except OSError as e:
+            assert u.errno == errno.EINTR
             os.kill(firefox_launcher_pid, signal.SIGINT)
         else:
             break
@@ -75,7 +76,7 @@ def main():
     ei()
     assert p == firefox_launcher_pid
 
-    if not n:
+    if updating:
         launch_firefox(None, FIREFOX_ARCHIVE)
 
 

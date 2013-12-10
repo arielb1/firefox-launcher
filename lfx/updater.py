@@ -1,6 +1,8 @@
 import sys, hashlib
+from contextlib import contextmanager
 
 from bz2 import BZ2Decompressor
+
 
 from .lzma import (LZMADecompressor as Decompressor,
                    LZMACompressor as Compressor)
@@ -9,31 +11,33 @@ from . import mozilla
 from .versionfile import VersionFile
 from .filekit import AtomicReplacement
 
+
 def display_asterisk():
     sys.stderr.write('*')
     sys.stderr.flush()
 
-def try_update_firefox(temp_ctx, lock_name, arc_name,
-                       check_interval, gnupg_dir, before_update):
+@contextmanager
+def try_update_firefox(temp_ctx, lock_name, arc_name, check_interval,
+                       gnupg_dir):
     with VersionFile(lock_name, mozilla.FirefoxVersion,
                      check_interval) as vers:
         time_to_next = vers.can_skip_updates()
         if time_to_next:
-            return time_to_next
+            yield (False, time_to_next)
+            return
 
         print('[-] Checking Firefox Version...', end=' ', file=sys.stderr)
         latest = mozilla.get_latest_firefox_version()
         print(latest, file=sys.stderr)
 
         if vers.register_update(latest):
-            before_update()
+            yield (True, 0)
             with AtomicReplacement(arc_name, temp_ctx) as out:
                 print('[+] Updating Firefox', file=sys.stderr)
                 update_firefox(latest, out, gnupg_dir)
                 out.ready = True
         else:
-            return True
-    return False
+            yield (False, 1)
 
 def update_firefox(version, out, gnupg_dir):
     bz2_archive = get_bz2_archive(version, gnupg_dir)
