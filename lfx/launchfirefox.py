@@ -136,7 +136,7 @@ def start_firefox_in_cwd(profile):
 def wait_until(t):
     clock_pid = os.fork()
     if not clock_pid:
-        to_sleep = time.time() - t
+        to_sleep = t - time.time()
         if to_sleep > 0:
             time.sleep(to_sleep)
         os._exit(0)
