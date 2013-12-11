@@ -23,3 +23,7 @@ def ei():
     if _have_sigint:
         _have_sigint = False
         raise KeyboardInterrupt
+
+def display_asterisk():
+    sys.stderr.write('*')
+    sys.stderr.flush()

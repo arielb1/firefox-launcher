@@ -1,7 +1,9 @@
-import os.path, tarfile, io
+import os, os.path, tarfile, io, re
 
-from .filekit import LockFile
-from .lzma import LZMACompressor, LZMADecompressor
+from .filekit import LockFile, AtomicReplacement
+from .lzma import LZMACompressor, LZMADecompressor, FILTER_DELTA
+
+PARTFILE_RE = re.compile('^profile.([0-9]+).tar.lzD$')
 
 LOCKFILE_NAME = 'profile.lock'
 PARTFILE_NAME = 'profile.{}.tar.lzD'
@@ -16,6 +18,7 @@ class FirefoxProfile:
         self.profile_snapshot = None
         self.compressor = None
         self.lockfile = None
+        self.next_partfile = 0
         self.block_size = block_size
         self.feedback_fun = feedback_fun
 
@@ -29,25 +32,67 @@ class FirefoxProfile:
         return self
 
     def load(self):
+        self.compressor = LZMACompressor(FILTER_DELTA)
         profile_data = io.BytesIO()
-        self._load_profile(profile_data)
+        self._load_profile(profile_data, LZMADecompressor(FILTER_DETA))
         profile_data.seek(0)
-        self._cleanup_profile(profile_data)
+        self._setup_profile(profile_data)
         profile_data.seek(0)
         self._extract_profile(profile_data)
 
-    def _load_profile(self):
-        complete_file_name = os.path.join(self.profile_dir, COMPLETE_NAME)
+    def partfile_name(self, i):
+        return os.path.join(self.profile_dir, PARTFILE_NAME.format(i))
 
-        if os.path.exists(complete_file_name):
-            complete_file = open(complete_file_name, 'rb')
-            
+    def complete_name(self):
+        return os.path.join(self.profile_dir, COMPLETE_NAME)
+
+    def _load_profile(self, out, dec):
+        if os.path.exists(self.complete_name()):
+            complete_file = open(self.complete_name(), 'rb')
+            dec.decompress_pump(lambda: complete_file.read(self.block_size),
+                                out.write, self.feedback_fun)
+        else:
+            last = 0
+            while os.path.exists(self.partfile_name(last)):
+                out.seek(0)
+                out.truncate()
+                cur_file = open(self.partfile_name(last), 'rb')
+                dec.decompress_pump(lambda: cur_file.read(self.block_size),
+                                    out.write, self.feedback_fun)
+                last += 1
+
+    def _setup_profile(self, out):
+        with AtomicReplacement(self.complete_name(), self.temp_ctx) as rep:
+            self.compressor.compress_pump(lambda: out.read(self.block_size),
+                                          rep.write, self.feedback_fun)
+            rep.ready = True
+
+        for f in os.listdir(self.profile_dir):
+            if PARTFILE_RE.match(f):
+                os.unlink(f)
+
+        os.rename(self.complete_name(), self.partfile_name(0))
+        self.next_partfile = 1
+
+    def _extract_profile(self, out):
+        tar = tarfile.open(fileobj=out)
+        tar.extractall()
 
     def __exit__(self, ex, et, tb):
         return self.lockfile.__exit__(ex, et, tb)
 
     def snapshot_profile(self):
-        pass
+        out = io.BytesIO()
+        tar = tarfile.open(fileobj=out, mode='w')
+        tar.add('.fontconfig')
+        tar.add('.mozilla')
+        out.seek(0)
+        return out
 
-    def write_profile(self):
-        pass
+    def write_profile(self, snapshot):
+        with AtomicReplacement(self.partfile_name(next_partfile),
+                               self.temp_ctx) as rep:
+            self.compressor.compress_pump(lambda: out.read(self.block_size),
+                                          rep.write, self.feedback_fun)
+            rep.ready = True
+        self.next_partfile += 1

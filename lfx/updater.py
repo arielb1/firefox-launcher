@@ -10,11 +10,7 @@ from .lzma import (LZMADecompressor as Decompressor,
 from . import mozilla
 from .versionfile import VersionFile
 from .filekit import AtomicReplacement
-
-
-def display_asterisk():
-    sys.stderr.write('*')
-    sys.stderr.flush()
+from .util import display_asterisk
 
 @contextmanager
 def try_update_firefox(temp_ctx, lock_name, arc_name, check_interval,
