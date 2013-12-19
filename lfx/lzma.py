@@ -33,7 +33,8 @@ def _setup_filter(preset, **options):
     return POINTER(_lzma.filter)(filters), (opts,filters,)
 
 FILTER_PREPACK = _setup_filter(9)
-FILTER_DELTA = _setup_filter(9, mf=_lzma.MF_HC4, dict_size=512<<20)
+FILTER_DELTA = _setup_filter(6, mf=_lzma.MF_HC4, dict_size=512<<20)
+FILTER_DELTA2 = _setup_filter(6, mf=_lzma.MF_HC4, dict_size=128<<20)
 
 class _LZMACodec:
     # filter[1] is gc keepalive, only filter[0] is  used

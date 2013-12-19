@@ -2,6 +2,7 @@ import os, os.path, tarfile, io, re
 
 from .filekit import LockFile, AtomicReplacement
 from .lzma import LZMACompressor, LZMADecompressor, FILTER_DELTA
+from .lzma import FILTER_DELTA2
 
 PARTFILE_RE = re.compile('^profile.([0-9]+).tar.lzD$')
 
@@ -9,11 +10,10 @@ LOCKFILE_NAME = 'profile.lock'
 PARTFILE_NAME = 'profile.{}.tar.lzD'
 COMPLETE_NAME = 'profile.complete.tar.lzD'
 
+# Assumes firefox is at cwd
 class FirefoxProfile:
-    def __init__(self, profile_dir, firefox_dir, temp_ctx,
-                 feedback_fun, block_size):
+    def __init__(self, profile_dir, temp_ctx, feedback_fun, block_size):
         self.profile_dir = profile_dir
-        self.firefox_dir = firefox_dir
         self.temp_ctx = temp_ctx
         self.profile_snapshot = None
         self.compressor = None
@@ -32,9 +32,10 @@ class FirefoxProfile:
         return self
 
     def load(self):
-        self.compressor = LZMACompressor(FILTER_DELTA)
+        self.compressor = LZMACompressor(filter=FILTER_DELTA2)
         profile_data = io.BytesIO()
-        self._load_profile(profile_data, LZMADecompressor(FILTER_DETA))
+        self._load_profile(profile_data, LZMADecompressor(
+                filter=FILTER_DELTA2))
         profile_data.seek(0)
         self._setup_profile(profile_data)
         profile_data.seek(0)
@@ -65,18 +66,22 @@ class FirefoxProfile:
         with AtomicReplacement(self.complete_name(), self.temp_ctx) as rep:
             self.compressor.compress_pump(lambda: out.read(self.block_size),
                                           rep.write, self.feedback_fun)
+            rep.write(self.compressor.sync())
             rep.ready = True
 
         for f in os.listdir(self.profile_dir):
             if PARTFILE_RE.match(f):
-                os.unlink(f)
+                os.unlink(os.path.join(self.profile_dir, f))
 
         os.rename(self.complete_name(), self.partfile_name(0))
         self.next_partfile = 1
 
     def _extract_profile(self, out):
-        tar = tarfile.open(fileobj=out)
-        tar.extractall()
+        try:
+            tar = tarfile.open(fileobj=out)
+            tar.extractall()
+        except tarfile.ReadError: # tar also crashes on empty file
+            pass
 
     def __exit__(self, ex, et, tb):
         return self.lockfile.__exit__(ex, et, tb)
@@ -84,15 +89,19 @@ class FirefoxProfile:
     def snapshot_profile(self):
         out = io.BytesIO()
         tar = tarfile.open(fileobj=out, mode='w')
-        tar.add('.fontconfig')
-        tar.add('.mozilla')
+        if os.path.exists('.fontconfig'):
+            tar.add('.fontconfig')
+        if os.path.exists('.mozilla'):
+            tar.add('.mozilla')
+        tar.close()
         out.seek(0)
         return out
 
-    def write_profile(self, snapshot):
-        with AtomicReplacement(self.partfile_name(next_partfile),
+    def write_profile(self, snap):
+        with AtomicReplacement(self.partfile_name(self.next_partfile),
                                self.temp_ctx) as rep:
-            self.compressor.compress_pump(lambda: out.read(self.block_size),
+            self.compressor.compress_pump(lambda: snap.read(self.block_size),
                                           rep.write, self.feedback_fun)
+            rep.write(self.compressor.sync())
             rep.ready = True
         self.next_partfile += 1

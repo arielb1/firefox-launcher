@@ -9,7 +9,8 @@ from .lzma import (LZMADecompressor as Decompressor,
 
 from . import updater
 from .filekit import TemporaryFileContext
-from .util import ei, di
+from .util import ei, di, display_asterisk
+from .profile import FirefoxProfile
 
 BLOCK_SIZE = 1048576
 MAX_VERSION_LENGTH = 65536
@@ -25,11 +26,10 @@ if not os.path.isdir(MAIN_DIRECTORY):
 FIREFOX_ARCHIVE = os.path.join(MAIN_DIRECTORY, 'firefox-latest.tar.xz')
 # format: version lastdate
 VERSION_FILE = os.path.join(MAIN_DIRECTORY, 'firefox-version')
-PROFILE_LOCK = os.path.join(MAIN_DIRECTORY, 'profile.lock')
-PROFILE_FILE = os.path.join(MAIN_DIRECTORY, 'profile.tar.xz')
+PROFILE_DIR = os.path.join(MAIN_DIRECTORY, 'profile')
 GNUPG_HOME = os.path.join(MAIN_DIRECTORY, 'gnupg')
 UPDATE_INTERVAL = 86400
-PROFILE_INTERVAL = 120
+PROFILE_INTERVAL = 60
 
 TEMP_CONTEXT = TemporaryFileContext(dir=MAIN_DIRECTORY,
                                     suffix='.~{}~'.format(os.getpid()))
@@ -41,7 +41,7 @@ def main():
         sys.stdout.flush()
         try:
             ei()
-            launch_firefox(None, FIREFOX_ARCHIVE)
+            launch_firefox(PROFILE_DIR, FIREFOX_ARCHIVE, TEMP_CONTEXT)
         except (IOError, KeyboardInterrupt):
             os._exit(1)
         os._exit(0)
@@ -77,7 +77,7 @@ def main():
     assert p == firefox_launcher_pid
 
     if updating:
-        launch_firefox(None, FIREFOX_ARCHIVE)
+        launch_firefox(PROFILE_DIR, FIREFOX_ARCHIVE, TEMP_CONTEXT)
 
 
 def unpack_firefox(archive):
@@ -93,7 +93,7 @@ def unpack_firefox(archive):
 
 # Should be called with interrupts disabled
 # Launches the browser in archive with the profile profile
-def launch_firefox(profile, archive):
+def launch_firefox(profile_f, archive, temp_ctx):
     print('[-] Unpacking the Browser... ', end=' ')
     sys.stdout.flush()
     with tempfile.TemporaryDirectory(prefix='firefox-launcher') as direct:
@@ -103,12 +103,15 @@ def launch_firefox(profile, archive):
         print('Done')
 
         print('[-] Loading your Profile... ', end=' ')
-
-        print('Done')
-
-        print('[-] Launching')
         sys.stdout.flush()
-        start_firefox_in_cwd(profile)
+        with FirefoxProfile(profile_f, temp_ctx, display_asterisk,
+                            BLOCK_SIZE) as prof:
+            prof.load()
+            print(' Done')
+
+            print('[-] Launching')
+            sys.stdout.flush()
+            start_firefox_in_cwd(prof)
 
 # Starts Firefox in the current directory and takes care of it
 def start_firefox_in_cwd(profile):
@@ -151,9 +154,27 @@ def manager_loop(profile, child_pid, profile_interval=PROFILE_INTERVAL):
         while p != child_pid:
             p, _ = wait_until(next_check)
             next_check = time.time() + PROFILE_INTERVAL
+
+            snapshot_profile(profile, child_pid if p != child_pid else None)
     finally:
         if p != child_pid:
             os.kill(child_pid, signal.SIGINT)
+
+def snapshot_profile(profile, child_pid):
+    sys.stderr.write('[-] Snapshotting... ')
+    sys.stderr.flush()
+    if child_pid:
+        os.kill(child_pid, signal.SIGSTOP)
+    snapshot = profile.snapshot_profile()
+    if child_pid:
+        os.kill(child_pid, signal.SIGCONT)
+    sys.stderr.write('Done\n')
+
+    sys.stderr.write('[-] Saving... ')
+    sys.stderr.flush()
+    profile.write_profile(snapshot)
+    sys.stderr.write(' Done\n')
+    sys.stderr.flush()
 
 if __name__ == '__main__':
     main()

@@ -1,4 +1,4 @@
-import ssl, signal
+import ssl, signal, sys
 
 __all__ = ['SANE_SSL_CONTEXT', 'di', 'ei']
 
