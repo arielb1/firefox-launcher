@@ -29,7 +29,7 @@ VERSION_FILE = os.path.join(MAIN_DIRECTORY, 'firefox-version')
 PROFILE_DIR = os.path.join(MAIN_DIRECTORY, 'profile')
 GNUPG_HOME = os.path.join(MAIN_DIRECTORY, 'gnupg')
 UPDATE_INTERVAL = 86400
-PROFILE_INTERVAL = 60
+PROFILE_INTERVAL = 120
 
 TEMP_CONTEXT = TemporaryFileContext(dir=MAIN_DIRECTORY,
                                     suffix='.~{}~'.format(os.getpid()))
@@ -115,26 +115,26 @@ def launch_firefox(profile_f, archive, temp_ctx):
 
 # Starts Firefox in the current directory and takes care of it
 def start_firefox_in_cwd(profile):
-        pid = os.getpid()
-        child_pid = -1
+    pid = os.getpid()
+    child_pid = -1
 
-        di()
-        try:
-            child_pid = os.fork()
+    di()
+    try:
+        child_pid = os.fork()
  
-            if not child_pid:
-                env = os.environ
-                env['HOME'] = os.getcwd()
-                os.chdir('firefox')
-                os.execve('./firefox', ['./firefox'], env)
-                os._exit(1)
-        except BaseException:
-            if pid != os.getpid(): # All secondary processes
-                os._exit(1)
+        if not child_pid:
+            env = os.environ
+            env['HOME'] = os.getcwd()
+            os.chdir('firefox')
+            os.execve('./firefox', ['./firefox'], env)
+            os._exit(1)
+    except BaseException:
+        if pid != os.getpid(): # All secondary processes
+            os._exit(1)
 
-            raise
+        raise
 
-        manager_loop(profile, child_pid)
+    manager_loop(profile, child_pid)
 
 def wait_until(t):
     clock_pid = os.fork()
@@ -156,6 +156,7 @@ def manager_loop(profile, child_pid, profile_interval=PROFILE_INTERVAL):
             next_check = time.time() + PROFILE_INTERVAL
 
             snapshot_profile(profile, child_pid if p != child_pid else None)
+        profile.coalesce()
     finally:
         if p != child_pid:
             os.kill(child_pid, signal.SIGINT)
@@ -165,14 +166,14 @@ def snapshot_profile(profile, child_pid):
     sys.stderr.flush()
     if child_pid:
         os.kill(child_pid, signal.SIGSTOP)
-    snapshot = profile.snapshot_profile()
+    profile.snapshot_profile()
     if child_pid:
         os.kill(child_pid, signal.SIGCONT)
     sys.stderr.write('Done\n')
 
     sys.stderr.write('[-] Saving... ')
     sys.stderr.flush()
-    profile.write_profile(snapshot)
+    profile.write_profile()
     sys.stderr.write(' Done\n')
     sys.stderr.flush()
 
