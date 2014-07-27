@@ -10,14 +10,15 @@ VERSION_RE = '([0-9]+(?:[.][0-9]+)*)'
 
 CDN_HOST = 'download-installer.cdn.mozilla.net'
 CDN_DIR = '/pub/firefox/releases/{0}/'
-CDN_FIREFOX = 'linux-i686/en-US/firefox-{0}.tar.bz2'
+CDN_FIREFOX = 'linux-x86_64/en-US/firefox-{0}.tar.bz2'
 
 VCHECK_HOST = 'download.mozilla.org'
 VCHECK_PATH = '/?product=firefox-latest&os=linux&lang=en-US'
 VCHECK_REGEXES = [
    re.compile('^[?]product=firefox-{}&os=linux&lang=en-US$'.format(
             VERSION_RE)),
-   re.compile(('^http://{}{}{}$'.format(CDN_HOST, CDN_DIR, CDN_FIREFOX)
+   re.compile(('^http://{}{}{}$'.format(CDN_HOST, CDN_DIR,
+     CDN_FIREFOX.replace('x86_64', 'i686'))
                .format(VERSION_RE)))
 ]
 

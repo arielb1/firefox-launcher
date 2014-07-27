@@ -98,7 +98,14 @@ def launch_firefox(profile_f, archive, temp_ctx):
     sys.stdout.flush()
     with tempfile.TemporaryDirectory(prefix='firefox-launcher') as direct:
         os.chdir(direct)
-
+        os.umask(0o077)
+        old_home = os.getenv('HOME')
+        if old_home is not None:
+            try:
+                old_xauth_path = os.path.join(old_home, '.Xauthority')
+                shutil.copyfile(old_xauth_path, './.Xauthority')
+            except IOError:
+                pass
         unpack_firefox(archive)
         print('Done')
 
