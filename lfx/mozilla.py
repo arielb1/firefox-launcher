@@ -66,7 +66,7 @@ def _get_from_cdn(conn, version, filename, callback=lambda: None,
 
     url = CDN_DIR.format(version) + filename
     print('GET %s ' % url,end='', file=sys.stderr)
-    conn.request('get', url)
+    conn.request('GET', url)
     response = conn.getresponse()
     if response.status != 200:
         raise ValueError(response.status, response.reason)
