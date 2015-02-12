@@ -4,12 +4,18 @@ __all__ = ['FILTER_PREPACK', 'FILTER_DELTA', 'LZMACompressor',
 import ctypes, io, struct
 from ctypes import byref, POINTER
 from . import _lzma
+import sys
 
 SIZE_T = struct.Struct('L')
 
 def PyMemoryView_GET_BASE(buf):
     assert type(buf) is memoryview
-    return ctypes.cast(SIZE_T.unpack(ctypes.string_at(id(buf)+SIZE_T.size*2,
+    assert sys.implementation.name == 'cpython'
+    if sys.hexversion >= 0x03030000:
+        off = 7
+    else:
+        off = 2
+    return ctypes.cast(SIZE_T.unpack(ctypes.string_at(id(buf)+SIZE_T.size*off,
                          SIZE_T.size))[0], POINTER(_lzma.uint8_t))
 
 def ptr_diff(p1, p2):
@@ -21,10 +27,10 @@ def _setup_filter(preset, **options):
     opts = _lzma.options_lzma()
     if _lzma.lzma_preset(byref(opts), preset):
         raise ValueError('Bad LZMA Preset {}'.format(preset))
-    
+
     for opt,val in options.items():
         setattr(opts, opt, val)
-        
+
     filters = (_lzma.filter*2)()
     filters[0].id = _lzma.FILTER_LZMA2
     filters[0].options = ctypes.addressof(opts)
@@ -48,7 +54,7 @@ class _LZMACodec:
 
         if err:
             raise ValueError('raw_encoder returned errno', err)
-        
+
     def code(self, data, action=_lzma.RUN):
         result = io.BytesIO()
         view = memoryview(data)

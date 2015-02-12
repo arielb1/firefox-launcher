@@ -41,6 +41,7 @@ def main():
         sys.stdout.flush()
         try:
             ei()
+            __import__('pdb').set_trace()
             launch_firefox(PROFILE_DIR, FIREFOX_ARCHIVE, TEMP_CONTEXT)
         except (IOError, KeyboardInterrupt):
             os._exit(1)
@@ -83,7 +84,7 @@ def main():
 def unpack_firefox(archive):
     dec = Decompressor()
     arc = open(archive, 'rb')
-        
+
     decompressed = tempfile.NamedTemporaryFile()
     dec.decompress_pump(lambda: arc.read(BLOCK_SIZE), decompressed.write,
                         lambda: 0)
@@ -128,7 +129,7 @@ def start_firefox_in_cwd(profile):
     di()
     try:
         child_pid = os.fork()
- 
+
         if not child_pid:
             env = os.environ
             env['HOME'] = os.getcwd()
