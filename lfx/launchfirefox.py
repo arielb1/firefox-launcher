@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import os, sys, signal, os.path, tempfile
-import time, shutil, errno
+import time, shutil, errno, traceback
 
 from .lzma import (LZMADecompressor as Decompressor,
                    LZMACompressor as Compressor)
@@ -41,9 +41,11 @@ def main():
         sys.stdout.flush()
         try:
             ei()
-            __import__('pdb').set_trace()
             launch_firefox(PROFILE_DIR, FIREFOX_ARCHIVE, TEMP_CONTEXT)
-        except (IOError, KeyboardInterrupt):
+        except KeyboardInterrupt:
+            os._exit(2)
+        except:
+            traceback.print_exc()
             os._exit(1)
         os._exit(0)
 
@@ -59,7 +61,7 @@ def main():
             print('[-] Next Check in', ttn, 'Seconds', file=sys.stderr)
 
         di()
-    except BaseException:
+    except:
         print('[-] Failed to check for updates! Shutting down.',
               file=sys.stderr)
         os.kill(firefox_launcher_pid, signal.SIGINT)
@@ -67,11 +69,13 @@ def main():
 
     while 1:
         try:
-            p,_ = os.wait()
+            p,q = os.wait()
         except OSError as e:
             assert e.errno == errno.EINTR
             os.kill(firefox_launcher_pid, signal.SIGINT)
         else:
+            if q:
+                print('[-] Launcher exited with status', hex(q))
             break
 
     ei()
