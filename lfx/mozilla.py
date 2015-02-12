@@ -27,7 +27,7 @@ class FirefoxVersion(str):
 
     def __init__(self, v):
         assert(type(v) is str)
-        super().__init__(v)
+        super().__init__()
 
     def __lt__(self, other):
         return self.as_sequence() < other.as_sequence()
