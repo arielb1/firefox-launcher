@@ -102,6 +102,8 @@ class AtomicReplacement:
     def __exit__(self, e_t, e_v, tb):
         if self.ready:
             self.tempfile.delete = False
+            if hasattr(self.tempfile, '_closer'):
+                self.tempfile._closer.delete = False
             name = self.tempfile.name
             result = self.tempfile.__exit__(e_t, e_v, tb)
 
